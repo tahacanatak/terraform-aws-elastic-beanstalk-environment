@@ -404,7 +404,7 @@ locals {
       value     = "true"
     },
   ]
-  
+
   alb_defaul_settings = [
     {
       namespace = "aws:elbv2:loadbalancer"
@@ -493,6 +493,11 @@ locals {
       namespace = "aws:elasticbeanstalk:environment:process:default"
       name      = "Protocol"
       value     = "HTTP"
+    },
+    {
+      namespace = "aws:elasticbeanstalk:environment:process:default"
+      name      = "MatcherHTTPCode"
+      value     = var.matcherHttpCode
     }
   ]
 
@@ -504,15 +509,34 @@ locals {
 # Full list of options:
 # http://docs.aws.amazon.com/elasticbeanstalk/latest/dg/command-options-general.html#command-options-general-elasticbeanstalkmanagedactionsplatformupdate
 #
+
+resource "aws_elastic_beanstalk_application" "default" {
+  name        = var.application_name
+  description = var.app_description
+  appversion_lifecycle {
+    service_role          = "arn:aws:iam::570614448131:role/aws-elasticbeanstalk-service-role"
+    max_count             = 10
+    delete_source_from_s3 = true
+  }
+}
+
+resource "aws_elastic_beanstalk_application_version" "default" {
+  name        = var.application_version_name
+  application = aws_elastic_beanstalk_application.default.name
+  description = "application version created by terraform"
+  bucket      = var.application_version_bucket_name
+  key         = var.application_version_object_key
+}
+
 resource "aws_elastic_beanstalk_environment" "default" {
-  name                   = module.this.id
-  application            = var.elastic_beanstalk_application_name
-  description            = var.description
+  name                   = var.environment_name
+  application            = aws_elastic_beanstalk_application.default.name
+  description            = var.env_description
   tier                   = var.tier
   solution_stack_name    = var.solution_stack_name
   wait_for_ready_timeout = var.wait_for_ready_timeout
-  version_label          = var.version_label
-  tags                   = local.tags
+  version_label          = aws_elastic_beanstalk_application_version.default.name
+  tags = local.tags
 
   dynamic "setting" {
     for_each = local.elb_settings_final
