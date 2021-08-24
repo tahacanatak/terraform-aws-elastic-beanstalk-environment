@@ -124,11 +124,6 @@ variable "security_groups" {
   default     = []
 }
 
-variable "security_groups" {
-  type        = list(string)
-  description = "A list of Security Group IDs to associate with EC2 instances."
-  default     = []
-}
 
 variable "vpc_id" {
   type        = string
