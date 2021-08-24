@@ -34,13 +34,11 @@ variable "application_version_name" {
 
 variable "application_version_bucket_name" {
   type        = string
-  default     = ""
   description = "Elastic Beanstalk application build file bucket name"
 }
 
 variable "application_version_object_key" {
   type        = string
-  default     = ""
   description = "Elastic Beanstalk application build file key"
 }
 
@@ -128,19 +126,16 @@ variable "security_groups" {
 variable "vpc_id" {
   type        = string
   description = "ID of the VPC in which to provision the AWS resources"
-  default     = "vpc-0d02c86b74c845e53"
 }
 
 variable "loadbalancer_subnets" {
   type        = list(string)
   description = "List of subnets to place Elastic Load Balancer"
-  default     = ["subnet-09832a5d768b84caa", "subnet-0c8542a0d49d17874", "subnet-0f70b13762fc9bc9d"]
 }
 
 variable "application_subnets" {
   type        = list(string)
   description = "List of subnets to place EC2 instances"
-  default     = ["subnet-09832a5d768b84caa", "subnet-0c8542a0d49d17874", "subnet-0f70b13762fc9bc9d"]
 }
 
 variable "availability_zone_selector" {
@@ -193,7 +188,7 @@ variable "managed_actions_enabled" {
 
 variable "autoscale_min" {
   type        = number
-  default     = 2
+  default     = 1
   description = "Minumum instances to launch"
 }
 
@@ -319,7 +314,6 @@ variable "logs_retention_in_days" {
 
 variable "loadbalancer_certificate_arn" {
   type        = string
-  default     = "arn:aws:acm:eu-central-1:570614448131:certificate/e676de3f-e467-4f7e-abb7-41ddba7a3421"
   description = "Load Balancer SSL certificate ARN. The certificate must be present in AWS Certificate Manager"
 }
 
