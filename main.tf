@@ -174,6 +174,7 @@ data "aws_iam_policy_document" "default" {
       "autoscaling:PutScheduledUpdateGroupAction",
       "autoscaling:ResumeProcesses",
       "autoscaling:SetDesiredCapacity",
+      "autoscaling:SetInstanceProtection",
       "autoscaling:SuspendProcesses",
       "autoscaling:TerminateInstanceInAutoScalingGroup",
       "autoscaling:UpdateAutoScalingGroup",
@@ -296,27 +297,17 @@ resource "aws_iam_instance_profile" "ec2" {
   role = aws_iam_role.ec2.name
 }
 
-resource "aws_security_group" "default" {
-  name        = module.this.id
-  description = "Allow inbound traffic from provided Security Groups"
+module "security_group" {
+  source  = "cloudposse/security-group/aws"
+  version = "0.3.1"
 
-  vpc_id = var.vpc_id
+  use_name_prefix = var.security_group_use_name_prefix
+  rules           = var.security_group_rules
+  vpc_id          = var.vpc_id
+  description     = var.security_group_description
 
-  ingress {
-    from_port       = 0
-    to_port         = 0
-    protocol        = -1
-    security_groups = var.allowed_security_groups
-  }
-
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  tags = module.this.tags
+  enabled = local.security_group_enabled
+  context = module.this.context
 }
 
 locals {
@@ -325,6 +316,8 @@ locals {
   # `Namespace` should be removed as well since any string that contains `Name` forces recreation
   # https://github.com/terraform-providers/terraform-provider-aws/issues/3963
   tags = { for t in keys(module.this.tags) : t => module.this.tags[t] if t != "Name" && t != "Namespace" }
+
+  security_group_enabled = module.this.enabled && var.security_group_enabled
 
   classic_elb_settings = [
     {
@@ -445,6 +438,23 @@ locals {
       namespace = "aws:elbv2:listener:443"
       name      = "SSLPolicy"
       value     = var.loadbalancer_type == "application" ? var.loadbalancer_ssl_policy : ""
+    },
+    ###===================== Application Load Balancer Health check settings =====================================================###
+    # The Application Load Balancer health check does not take into account the Elastic Beanstalk health check path
+    # http://docs.aws.amazon.com/elasticbeanstalk/latest/dg/environments-cfg-applicationloadbalancer.html
+    # http://docs.aws.amazon.com/elasticbeanstalk/latest/dg/environments-cfg-applicationloadbalancer.html#alb-default-process.config
+    {
+      namespace = "aws:elasticbeanstalk:environment:process:default"
+      name      = "HealthCheckPath"
+      value     = var.healthcheck_url
+    }
+  ]
+
+  nlb_settings = [
+    {
+      namespace = "aws:elbv2:listener:default"
+      name      = "ListenerEnabled"
+      value     = var.http_listener_enabled
     }
   ]
 
@@ -474,16 +484,6 @@ locals {
       name      = "LoadBalancerType"
       value     = var.loadbalancer_type
     },
-
-    ###===================== Application Load Balancer Health check settings =====================================================###
-    # The Application Load Balancer health check does not take into account the Elastic Beanstalk health check path
-    # http://docs.aws.amazon.com/elasticbeanstalk/latest/dg/environments-cfg-applicationloadbalancer.html
-    # http://docs.aws.amazon.com/elasticbeanstalk/latest/dg/environments-cfg-applicationloadbalancer.html#alb-default-process.config
-    {
-      namespace = "aws:elasticbeanstalk:environment:process:default"
-      name      = "HealthCheckPath"
-      value     = var.healthcheck_url
-    },
     {
       namespace = "aws:elasticbeanstalk:environment:process:default"
       name      = "Port"
@@ -498,11 +498,16 @@ locals {
       namespace = "aws:elasticbeanstalk:environment:process:default"
       name      = "MatcherHTTPCode"
       value     = var.matcherHttpCode
+
     }
   ]
 
+  # Select elb configuration depending on loadbalancer_type
+  elb_settings_nlb    = var.loadbalancer_type == "network" ? concat(local.nlb_settings, local.generic_elb_settings) : []
+  elb_settings_alb    = var.loadbalancer_type == "application" ? concat(local.alb_settings, local.generic_elb_settings) : []
+  elb_setting_classic = var.loadbalancer_type == "classic" ? concat(local.classic_elb_settings, local.generic_elb_settings) : []
   # If the tier is "WebServer" add the elb_settings, otherwise exclude them
-  elb_settings_final = var.tier == "WebServer" ? var.loadbalancer_type == "application" ? concat(local.alb_settings, local.generic_elb_settings) : concat(local.classic_elb_settings, local.generic_elb_settings) : []
+  elb_settings_final = var.tier == "WebServer" ? concat(local.elb_settings_nlb, local.elb_settings_alb, local.elb_setting_classic) : []
 }
 
 #
@@ -572,7 +577,7 @@ resource "aws_elastic_beanstalk_environment" "default" {
   setting {
     namespace = "aws:autoscaling:launchconfiguration"
     name      = "SecurityGroups"
-    value     = join(",", compact(sort(concat([aws_security_group.default.id], var.additional_security_groups))))
+    value     = join(",", compact(sort(concat([module.security_group.id], var.security_groups))))
     resource  = ""
   }
 
@@ -998,7 +1003,7 @@ data "aws_elb_service_account" "main" {
 }
 
 data "aws_iam_policy_document" "elb_logs" {
-  count = var.tier == "WebServer" && var.environment_type == "LoadBalanced" ? 1 : 0
+  count = var.tier == "WebServer" && var.environment_type == "LoadBalanced" && var.loadbalancer_type != "network" ? 1 : 0
 
   statement {
     sid = ""
@@ -1024,7 +1029,7 @@ resource "aws_s3_bucket" "elb_logs" {
   #bridgecrew:skip=BC_AWS_S3_13:Skipping `Enable S3 Bucket Logging` check until bridgecrew will support dynamic blocks (https://github.com/bridgecrewio/checkov/issues/776).
   #bridgecrew:skip=BC_AWS_S3_14:Skipping `Ensure all data stored in the S3 bucket is securely encrypted at rest` check until bridgecrew will support dynamic blocks (https://github.com/bridgecrewio/checkov/issues/776).
   #bridgecrew:skip=CKV_AWS_52:Skipping `Ensure S3 bucket has MFA delete enabled` due to issue in terraform (https://github.com/hashicorp/terraform-provider-aws/issues/629).
-  count         = var.enable_elb_logs ? (var.tier == "WebServer" && var.environment_type == "LoadBalanced" ? 1 : 0) : 0
+  count         = var.enable_elb_logs ? (var.tier == "WebServer" && var.environment_type == "LoadBalanced" ? 1 : 0) : 
   bucket        = "${module.this.id}-eb-loadbalancer-logs"
   acl           = "private"
   force_destroy = var.force_destroy
