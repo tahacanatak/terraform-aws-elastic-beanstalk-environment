@@ -1,18 +1,55 @@
 variable "region" {
   type        = string
   description = "AWS region"
+  default     = "eu-central-1"
 }
 
-variable "description" {
+variable "env_description" {
   type        = string
-  default     = ""
+  default     = "environment description created by terraform"
   description = "Short description of the Environment"
 }
-
-variable "elastic_beanstalk_application_name" {
+variable "app_description" {
   type        = string
+  default     = "Application description created by terraform"
+  description = "Short description of the Application"
+}
+
+variable "environment_name" {
+  type    = string
+  default = "environment-name"
+}
+
+variable "application_name" {
+  type        = string
+  default     = "terraform application name"
   description = "Elastic Beanstalk application name"
 }
+
+variable "application_version_name" {
+  type        = string
+  default     = "Terraform application version name"
+  description = "Elastic Beanstalk application version name"
+}
+
+variable "application_version_bucket_name" {
+  type        = string
+  default     = ""
+  description = "Elastic Beanstalk application build file bucket name"
+}
+
+variable "application_version_object_key" {
+  type        = string
+  default     = ""
+  description = "Elastic Beanstalk application build file key"
+}
+
+
+// variable "version_label" {
+//   type        = string
+//   default     = "code-pipeline-1629701003547-y48jV0kzGVMNCslL8bkNiDldyn.OV044"
+//   description = "Elastic Beanstalk Application version to deploy"
+// }
 
 variable "environment_type" {
   type        = string
@@ -22,7 +59,7 @@ variable "environment_type" {
 
 variable "loadbalancer_type" {
   type        = string
-  default     = "classic"
+  default     = "application"
   description = "Load Balancer type, e.g. 'application' or 'classic'"
 }
 
@@ -87,20 +124,28 @@ variable "security_groups" {
   default     = []
 }
 
+variable "security_groups" {
+  type        = list(string)
+  description = "A list of Security Group IDs to associate with EC2 instances."
+  default     = []
+}
+
 variable "vpc_id" {
   type        = string
   description = "ID of the VPC in which to provision the AWS resources"
+  default     = "vpc-0d02c86b74c845e53"
 }
 
 variable "loadbalancer_subnets" {
   type        = list(string)
   description = "List of subnets to place Elastic Load Balancer"
-  default     = []
+  default     = ["subnet-09832a5d768b84caa", "subnet-0c8542a0d49d17874", "subnet-0f70b13762fc9bc9d"]
 }
 
 variable "application_subnets" {
   type        = list(string)
   description = "List of subnets to place EC2 instances"
+  default     = ["subnet-09832a5d768b84caa", "subnet-0c8542a0d49d17874", "subnet-0f70b13762fc9bc9d"]
 }
 
 variable "availability_zone_selector" {
@@ -166,6 +211,7 @@ variable "autoscale_max" {
 variable "solution_stack_name" {
   type        = string
   description = "Elastic Beanstalk stack, e.g. Docker, Go, Node, Java, IIS. For more info, see https://docs.aws.amazon.com/elasticbeanstalk/latest/platforms/platforms-supported.html"
+  default     = "64bit Amazon Linux 2 v2.2.4 running .NET Core"
 }
 
 variable "wait_for_ready_timeout" {
@@ -176,7 +222,7 @@ variable "wait_for_ready_timeout" {
 
 variable "associate_public_ip_address" {
   type        = bool
-  default     = false
+  default     = true
   description = "Whether to associate public IP addresses to the instances"
 }
 
@@ -186,11 +232,7 @@ variable "tier" {
   description = "Elastic Beanstalk Environment tier, 'WebServer' or 'Worker'"
 }
 
-variable "version_label" {
-  type        = string
-  default     = ""
-  description = "Elastic Beanstalk Application version to deploy"
-}
+
 
 variable "force_destroy" {
   type        = bool
@@ -224,7 +266,7 @@ variable "updating_max_batch" {
 
 variable "health_streaming_enabled" {
   type        = bool
-  default     = false
+  default     = true
   description = "For environments with enhanced health reporting enabled, whether to create a group in CloudWatch Logs for environment health and archive Elastic Beanstalk environment health data. For information about enabling enhanced health, see aws:elasticbeanstalk:healthreporting:system."
 }
 
@@ -242,8 +284,12 @@ variable "health_streaming_retention_in_days" {
 
 variable "healthcheck_url" {
   type        = string
-  default     = "/healthcheck"
+  default     = "/health"
   description = "Application Health Check URL. Elastic Beanstalk will call this URL to check the health of the application running on EC2 instances"
+}
+variable "matcherHttpCode" {
+  type        = number
+  default     = 200
 }
 
 variable "enable_log_publication_control" {
@@ -254,8 +300,14 @@ variable "enable_log_publication_control" {
 
 variable "enable_stream_logs" {
   type        = bool
-  default     = false
+  default     = true
   description = "Whether to create groups in CloudWatch Logs for proxy and deployment logs, and stream logs from each instance in your environment"
+}
+
+variable "enable_elb_logs" {
+  type        = bool
+  default     = false
+  description = "Whether to enable elb logs or not"
 }
 
 variable "logs_delete_on_terminate" {
@@ -272,13 +324,13 @@ variable "logs_retention_in_days" {
 
 variable "loadbalancer_certificate_arn" {
   type        = string
-  default     = ""
+  default     = "arn:aws:acm:eu-central-1:570614448131:certificate/e676de3f-e467-4f7e-abb7-41ddba7a3421"
   description = "Load Balancer SSL certificate ARN. The certificate must be present in AWS Certificate Manager"
 }
 
 variable "loadbalancer_ssl_policy" {
   type        = string
-  default     = ""
+  default     = "ELBSecurityPolicy-2016-08"
   description = "Specify a security policy to apply to the listener. This option is only applicable to environments with an application load balancer"
 }
 
@@ -420,8 +472,10 @@ variable "additional_settings" {
 }
 
 variable "env_vars" {
-  type        = map(string)
-  default     = {}
+  type = map(string)
+  default = {
+    ASPNETCORE_ENVIRONMENT = "Development"
+  }
   description = "Map of custom ENV variables to be provided to the application running on Elastic Beanstalk, e.g. env_vars = { DB_USER = 'admin' DB_PASS = 'xxxxxx' }"
 }
 
@@ -516,13 +570,13 @@ variable "s3_bucket_access_log_bucket_name" {
 
 variable "s3_bucket_versioning_enabled" {
   type        = bool
-  default     = true
+  default     = false
   description = "When set to 'true' the s3 origin bucket will have versioning enabled"
 }
 
 variable "s3_bucket_encryption_enabled" {
   type        = bool
-  default     = true
+  default     = false
   description = "When set to 'true' the resource will have aes256 encryption enabled by default"
 }
 

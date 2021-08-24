@@ -398,16 +398,11 @@ locals {
     },
   ]
 
-  alb_settings = [
-    {
-      namespace = "aws:elbv2:loadbalancer"
-      name      = "AccessLogsS3Bucket"
-      value     = join("", sort(aws_s3_bucket.elb_logs.*.id))
-    },
+  alb_defaul_settings = [
     {
       namespace = "aws:elbv2:loadbalancer"
       name      = "AccessLogsS3Enabled"
-      value     = "true"
+      value     = var.enable_elb_logs ? "true" : "false"
     },
     {
       namespace = "aws:elbv2:loadbalancer"
@@ -463,6 +458,15 @@ locals {
     }
   ]
 
+  # Only declare AccessLogsS3Bucket if enable_elb_logs = true
+  alb_settings = var.enable_elb_logs ? concat(local.alb_defaul_settings, [
+    {
+      namespace = "aws:elbv2:loadbalancer"
+      name      = "AccessLogsS3Bucket"
+      value     = join("", sort(aws_s3_bucket.elb_logs.*.id))
+    }
+  ]) : local.alb_defaul_settings
+
   generic_elb_settings = [
     {
       namespace = "aws:ec2:vpc"
@@ -488,7 +492,13 @@ locals {
     {
       namespace = "aws:elasticbeanstalk:environment:process:default"
       name      = "Protocol"
-      value     = var.loadbalancer_type == "network" ? "TCP" : "HTTP"
+      value     = "HTTP"
+    },
+    {
+      namespace = "aws:elasticbeanstalk:environment:process:default"
+      name      = "MatcherHTTPCode"
+      value     = var.matcherHttpCode
+
     }
   ]
 
@@ -504,15 +514,34 @@ locals {
 # Full list of options:
 # http://docs.aws.amazon.com/elasticbeanstalk/latest/dg/command-options-general.html#command-options-general-elasticbeanstalkmanagedactionsplatformupdate
 #
+
+resource "aws_elastic_beanstalk_application" "default" {
+  name        = var.application_name
+  description = var.app_description
+  appversion_lifecycle {
+    service_role          = "arn:aws:iam::570614448131:role/aws-elasticbeanstalk-service-role"
+    max_count             = 10
+    delete_source_from_s3 = true
+  }
+}
+
+resource "aws_elastic_beanstalk_application_version" "default" {
+  name        = var.application_version_name
+  application = aws_elastic_beanstalk_application.default.name
+  description = "application version created by terraform"
+  bucket      = var.application_version_bucket_name
+  key         = var.application_version_object_key
+}
+
 resource "aws_elastic_beanstalk_environment" "default" {
-  name                   = module.this.id
-  application            = var.elastic_beanstalk_application_name
-  description            = var.description
+  name                   = var.environment_name
+  application            = aws_elastic_beanstalk_application.default.name
+  description            = var.env_description
   tier                   = var.tier
   solution_stack_name    = var.solution_stack_name
   wait_for_ready_timeout = var.wait_for_ready_timeout
-  version_label          = var.version_label
-  tags                   = local.tags
+  version_label          = aws_elastic_beanstalk_application_version.default.name
+  tags = local.tags
 
   dynamic "setting" {
     for_each = local.elb_settings_final
@@ -1000,8 +1029,7 @@ resource "aws_s3_bucket" "elb_logs" {
   #bridgecrew:skip=BC_AWS_S3_13:Skipping `Enable S3 Bucket Logging` check until bridgecrew will support dynamic blocks (https://github.com/bridgecrewio/checkov/issues/776).
   #bridgecrew:skip=BC_AWS_S3_14:Skipping `Ensure all data stored in the S3 bucket is securely encrypted at rest` check until bridgecrew will support dynamic blocks (https://github.com/bridgecrewio/checkov/issues/776).
   #bridgecrew:skip=CKV_AWS_52:Skipping `Ensure S3 bucket has MFA delete enabled` due to issue in terraform (https://github.com/hashicorp/terraform-provider-aws/issues/629).
-  #bridgecrew:skip=BC_AWS_S3_16:Skipping since adding count condition sounds like to trigger an error. (https://github.com/cloudposse/terraform-aws-elastic-beanstalk-environment/pull/182)
-  count         = var.tier == "WebServer" && var.environment_type == "LoadBalanced" && var.loadbalancer_type != "network" ? 1 : 0
+  count         = var.enable_elb_logs ? (var.tier == "WebServer" && var.environment_type == "LoadBalanced" ? 1 : 0) : 
   bucket        = "${module.this.id}-eb-loadbalancer-logs"
   acl           = "private"
   force_destroy = var.force_destroy
